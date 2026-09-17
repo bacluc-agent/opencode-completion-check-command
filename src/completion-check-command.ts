@@ -212,6 +212,45 @@ async function readDefaultCommandFromDotfile(filePath: string): Promise<string |
   return trimmed || null
 }
 
+async function readDefaultCommandFromClaudeHooks(): Promise<string | null> {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || ''
+  if (!homeDir) {
+    return null
+  }
+  const settingsPath = `${homeDir}/.claude/settings.json`
+  const content = await readFileIfExists(settingsPath)
+  if (!content) {
+    return null
+  }
+  try {
+    const settings = JSON.parse(content)
+    const hooksObj = settings.hooks || null
+    if (!hooksObj || typeof hooksObj !== 'object') {
+      return null
+    }
+    // Support both modern `hooks.Stop` and legacy `hooks.stop`
+    const stopHooks = hooksObj.Stop || hooksObj.stop || []
+    if (!Array.isArray(stopHooks) || stopHooks.length === 0) {
+      return null
+    }
+    for (const entry of stopHooks) {
+      if (entry && typeof entry === 'object' && Array.isArray(entry.hooks)) {
+        for (const hook of entry.hooks) {
+          if (hook && hook.type === 'command' && typeof hook.command === 'string') {
+            const trimmed = hook.command.trim()
+            if (trimmed) {
+              return trimmed
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Malformed JSON — ignore
+  }
+  return null
+}
+
 export async function readDefaultCommand(
   directory: string,
 ): Promise<{ command: string | null; source: string | null }> {
@@ -232,6 +271,11 @@ export async function readDefaultCommand(
   command = await readDefaultCommandFromAgentsMd(directory)
   if (command) {
     return { command, source: 'AGENTS.md' }
+  }
+
+  command = await readDefaultCommandFromClaudeHooks()
+  if (command) {
+    return { command, source: '~/.claude/settings.json' }
   }
 
   return { command: null, source: null }

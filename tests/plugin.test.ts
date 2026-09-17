@@ -139,6 +139,59 @@ describe('readDefaultCommand', () => {
     expect(result.command).toBe('./agents-check.sh')
     expect(result.source).toBe('.agents/.completion-check-command')
   })
+
+  it('falls back to Claude hooks when all other sources are missing', async () => {
+    const originalHome = process.env.HOME
+    process.env.HOME = '/test/home'
+    mockFsFiles([
+      ['/test/dir/.agents/.completion-check-command', new Error('ENOENT')],
+      ['/test/dir/.opencode/.completion-check-command', new Error('ENOENT')],
+      ['/test/dir/AGENTS.md', new Error('ENOENT')],
+      [
+        '/test/home/.claude/settings.json',
+        JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: './claude-check.sh' }] }] } }),
+      ],
+    ])
+    const result = await readDefaultCommand('/test/dir')
+    expect(result.command).toBe('./claude-check.sh')
+    expect(result.source).toBe('~/.claude/settings.json')
+    process.env.HOME = originalHome
+  })
+
+  it('supports legacy hooks.stop lowercase', async () => {
+    const originalHome = process.env.HOME
+    process.env.HOME = '/test/home'
+    mockFsFiles([
+      [
+        '/test/home/.claude/settings.json',
+        JSON.stringify({ hooks: { stop: [{ hooks: [{ type: 'command', command: 'test -f DONE.txt' }] }] } }),
+      ],
+    ])
+    const result = await readDefaultCommand('/test/dir')
+    expect(result.command).toBe('test -f DONE.txt')
+    expect(result.source).toBe('~/.claude/settings.json')
+    process.env.HOME = originalHome
+  })
+
+  it('ignores Claude hooks with empty Stop array', async () => {
+    const originalHome = process.env.HOME
+    process.env.HOME = '/test/home'
+    mockFsFiles([['/test/home/.claude/settings.json', JSON.stringify({ hooks: { Stop: [] } })]])
+    const result = await readDefaultCommand('/test/dir')
+    expect(result.command).toBeNull()
+    expect(result.source).toBeNull()
+    process.env.HOME = originalHome
+  })
+
+  it('ignores Claude hooks with malformed JSON', async () => {
+    const originalHome = process.env.HOME
+    process.env.HOME = '/test/home'
+    mockFsFiles([['/test/home/.claude/settings.json', '{ invalid json']])
+    const result = await readDefaultCommand('/test/dir')
+    expect(result.command).toBeNull()
+    expect(result.source).toBeNull()
+    process.env.HOME = originalHome
+  })
 })
 
 describe('CompletionCheckStore', () => {
